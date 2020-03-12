@@ -77,9 +77,12 @@ if (!location.hash) {
     };
   
     navigator.mediaDevices.getUserMedia({
-      audio: false,
       video: true,
-    }).then(stream => {
+    }).then(
+    navigator.mediaDevices.getUserMedia({
+      audio: true,
+    })
+    ).then(stream => {
       // Display your local video in #localVideo element
       localVideo.srcObject = stream;
       // Add your stream to be sent to the conneting peer
