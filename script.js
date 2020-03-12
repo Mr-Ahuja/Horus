@@ -78,7 +78,6 @@ if (!location.hash) {
   
     navigator.mediaDevices.getUserMedia({
       audio: true,
-      video: false,
     }).then(
       navigator.mediaDevices.getUserMedia({
           audio: true,
