@@ -77,8 +77,8 @@ if (!location.hash) {
     };
   
     navigator.mediaDevices.getUserMedia({
-      video: true,
       audio: true,
+      video: true,
     }).then(stream => {
       // Display your local video in #localVideo element
       localVideo.srcObject = stream;
