@@ -75,7 +75,11 @@ if (!location.hash) {
         remoteVideo.srcObject = stream;
       }
     };
-  
+    
+    while(!navigator.mediaDevices.getUserMedia){
+      
+    }
+
     navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
