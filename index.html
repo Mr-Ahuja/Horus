@@ -6,7 +6,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width">
   <style>
-    video {
+    .remoteVideo {
       left: 50%;
       min-height: 100%;
       min-width: 100%;
@@ -14,12 +14,17 @@
       top: 50%;
       transform: translate(-50%, -50%);
     }
+    .localVideo {
+      position: absolute;
+      bottom: 8px;
+      right: 16px;
+    }
   </style>
 </head>
 
 <body>
-  <video id="localVideo" hidden autoplay muted></video>
-  <video id="remoteVideo" autoplay></video>
+  <video id="localVideo" class = "localVideo" autoplay muted></video>
+  <video id="remoteVideo" class = "remoteVideo" autoplay></video>
   <script src="script.js"></script>
 </body>
 
