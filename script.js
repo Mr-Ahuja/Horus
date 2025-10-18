@@ -21,6 +21,7 @@ const landing = document.getElementById('landing');
 const startRoomBtn = document.getElementById('startRoomBtn');
 const copyLinkLanding = document.getElementById('copyLinkLanding');
 const nameInput = document.getElementById('nameInput');
+const roomTitleInput = document.getElementById('roomTitleInput');
 const roomInput = document.getElementById('roomInput');
 const joinBtn = document.getElementById('joinBtn');
 
@@ -36,7 +37,7 @@ const configuration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 };
 const MAX_PEERS = 5;
-let room; let localStream; let ended = false; let myName = '';
+let room; let localStream; let ended = false; let myName = ''; let roomTitle = '';
 const peerState = new Map(); // peerId -> { makingOffer, polite }
 const peers = new Map(); // peerId -> RTCPeerConnection
 const remoteTiles = new Map(); // peerId -> HTMLVideoElement
@@ -73,16 +74,20 @@ copyLinkLanding?.addEventListener('click', async () => {
 });
 
 startRoomBtn?.addEventListener('click', () => {
-  myName = (nameInput?.value || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
+  myName = (nameInput?.value || '').trim() || (localStorage.getItem('hv_name') || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
+  roomTitle = (roomTitleInput?.value || '').trim();
+  if (myName) localStorage.setItem('hv_name', myName);
   roomHash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
   location.hash = roomHash;
   begin();
 });
 
 joinBtn?.addEventListener('click', () => {
-  myName = (nameInput?.value || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
+  myName = (nameInput?.value || '').trim() || (localStorage.getItem('hv_name') || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
   const val = (roomInput?.value || '').trim();
   if (!val) return;
+  roomTitle = (roomTitleInput?.value || '').trim();
+  if (myName) localStorage.setItem('hv_name', myName);
   try {
     if (val.includes('http')) {
       const url = new URL(val);
@@ -178,14 +183,35 @@ function begin() {
   if (landing) landing.classList.add('hidden');
   if (!roomHash) roomHash = location.hash.substring(1);
   els.roomId.textContent = roomHash;
+  if (roomTitle) { const rt = document.getElementById('roomTitle'); if (rt) rt.textContent = roomTitle; }
   roomName = 'observable-' + roomHash;
   drone = new ScaleDrone('yiS12Ts5RdNhebyM');
   attachDrone();
   startStars(false);
 }
 
-if (roomHash) { begin(); }
-else { startStars(true); }
+// If user followed a link, prompt for name first if unknown
+const storedName = (localStorage.getItem('hv_name') || '').trim();
+const nameModal = document.getElementById('nameModal');
+const modalName = document.getElementById('modalName');
+const modalJoinBtn = document.getElementById('modalJoinBtn');
+if (roomHash) {
+  if (!storedName) {
+    if (landing) landing.classList.add('hidden');
+    if (nameModal) { nameModal.classList.add('show'); modalName.value = ''; }
+  } else {
+    myName = storedName; begin();
+  }
+} else {
+  startStars(true);
+}
+
+modalJoinBtn?.addEventListener('click', () => {
+  myName = (modalName?.value || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
+  if (myName) localStorage.setItem('hv_name', myName);
+  nameModal?.classList.remove('show');
+  begin();
+});
 
 function attachDrone() {
 drone.on('open', error => {
@@ -212,8 +238,8 @@ drone.on('open', error => {
           const isOfferer = myId > m.id; // simple deterministic rule
           ensurePeer(m.id, isOfferer);
         });
-      // Introduce our name to the room
-      try { sendMessage({ intro: true, name: myName }); } catch {}
+      // Introduce our name and optional room title
+      try { sendMessage({ intro: true, name: myName, roomTitle: roomTitle || '' }); } catch {}
     });
 
   room.on('member_join', member => {
@@ -234,6 +260,7 @@ drone.on('open', error => {
     const tile = document.getElementById(`tile-${id}`);
     if (tile) tile.remove();
     remoteTiles.delete(id);
+    updateLayoutMode();
   });
 });
 }
@@ -282,6 +309,7 @@ function ensurePeer(peerId, isOfferer) {
     if (!vid.srcObject || vid.srcObject.id !== stream.id) {
       vid.srcObject = stream;
     }
+    updateLayoutMode();
   };
 
   // Add our tracks if already available
