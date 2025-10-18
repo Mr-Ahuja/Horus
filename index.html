@@ -55,7 +55,7 @@
     .videos { position: relative; width: 100%; height: 100%; background: #000; overflow: hidden; }
     .remoteVideo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
     .localVideo { position: absolute; bottom: 16px; right: 16px; width: min(30vw, 220px); aspect-ratio: 1.618/1; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.4); border: 1px solid #1c2430; background: #000; object-fit: cover; z-index: 3; }
-    .controls { display: flex; gap: 10px; align-items: center; justify-content: center; padding: 10px; z-index: 3; background: linear-gradient(0deg, rgba(0,0,0,0.35), rgba(0,0,0,0)); position: sticky; bottom: 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+    .controls { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 12px; z-index: 3; position: sticky; bottom: 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); background: rgba(9,13,20,0.45); backdrop-filter: blur(8px); border-top: 1px solid #1e2733; }
     .selects { display: flex; gap: 8px; align-items: center; }
     select { background: #0f151d; color: var(--text); border: 1px solid #1e2733; border-radius: 8px; padding: 6px 10px; }
     .helper { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); text-align: center; color: var(--muted); font-size: 14px; z-index: 1; }
@@ -101,13 +101,6 @@
 </head>
 
 <body>
-  <div id="nameModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="nameModalTitle">
-    <div class="modal-card">
-      <h3 id="nameModalTitle">Enter your name to join</h3>
-      <input id="modalName" placeholder="Your name" />
-      <button id="modalJoinBtn" class="btn primary">Join Call</button>
-    </div>
-  </div>
   <div id="landing" class="landing">
     <canvas id="stars"></canvas>
     <div class="hero">
@@ -124,7 +117,6 @@
         <button id="startRoomBtn" class="btn mellange"><span class="material-icons" style="font-size:18px">auto_awesome</span>Start Room</button>
       </div>
       <div class="stack">
-        <input id="nameInput" placeholder="Your name" />
         <input id="roomTitleInput" placeholder="Room name (optional)" />
         <div class="joinbar">
           <input id="roomInput" placeholder="Enter room code" />
@@ -152,8 +144,8 @@
       <video id="localVideo" class="localVideo" autoplay muted playsinline></video>
     </div>
     <div class="controls">
-      <button id="toggleMicBtn" class="btn" aria-pressed="false"><span class="material-icons" style="font-size:18px">mic</span><span>Mute</span></button>
-      <button id="toggleCamBtn" class="btn" aria-pressed="false"><span class="material-icons" style="font-size:18px">videocam</span><span>Stop</span></button>
+      <button id="toggleMicBtn" class="btn" aria-pressed="false" aria-label="Toggle microphone"><span class="material-icons" style="font-size:20px">mic</span></button>
+      <button id="toggleCamBtn" class="btn" aria-pressed="false" aria-label="Toggle camera"><span class="material-icons" style="font-size:20px">videocam</span></button>
       <button id="hangupBtn" class="btn danger"><span class="material-icons" style="font-size:18px">call_end</span><span>End</span></button>
       <div class="selects">
         <label for="audioIn">Mic</label>
