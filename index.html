@@ -2,32 +2,106 @@
 <html>
 
 <head>
-  <script type='text/javascript' src='scaledrone.min.js'></script>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Horus — Video Room</title>
+  <script type='text/javascript' src='scaledrone.min.js'></script>
+  <script>window.ENV = window.ENV || {};</script>
+  <script src="env.js" defer></script>
   <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121821;
+      --text: #e6eef8;
+      --muted: #95a3b8;
+      --accent: #2e8cff;
+      --danger: #ff4d4f;
+      --success: #29c26a;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    .app {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0));
+      z-index: 3;
+    }
+    .room {
+      display: flex; gap: 10px; align-items: center;
+      font-weight: 500;
+    }
+    .badge { padding: 4px 10px; border-radius: 999px; font-size: 12px; background: var(--panel); color: var(--muted); }
+    .status { padding: 4px 10px; border-radius: 999px; font-size: 12px; background: var(--panel); color: var(--muted); }
+    .status.ok { color: var(--success); }
+    .status.warn { color: #f5a524; }
+    .status.err { color: var(--danger); }
+    .btn { cursor: pointer; border: 1px solid #1e2733; background: #0f151d; color: var(--text); padding: 6px 10px; border-radius: 8px; font-size: 14px; transition: 0.15s ease; }
+    .btn:hover { border-color: #2a3545; background: #131b26; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .btn.danger { background: var(--danger); border-color: var(--danger); color: white; }
+    .videos {
+      position: relative;
+      width: 100%; height: 100%;
+      background: #000;
+    }
     .remoteVideo {
-      left: 50%;
-      min-height: 100%;
-      min-width: 100%;
-      position: fixed;
-      top: 50%;
-      transform: translate(-50%, -50%);
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
     }
     .localVideo {
-      position: absolute;
-      bottom: 8px;
-      right: 15px;
-      z-index: 100;
-      width: 12rem;
-      height: 12rem;
+      position: absolute; bottom: 16px; right: 16px; z-index: 2; width: 240px; height: 160px; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.35); background: #000; object-fit: cover; border: 1px solid #1c2430;
+    }
+    .controls {
+      display: flex; gap: 8px; align-items: center; justify-content: center; padding: 10px; z-index: 3; background: linear-gradient(0deg, rgba(0,0,0,0.35), rgba(0,0,0,0));
+    }
+    .selects { display: flex; gap: 8px; align-items: center; }
+    select { background: #0f151d; color: var(--text); border: 1px solid #1e2733; border-radius: 8px; padding: 6px 10px; }
+    .helper { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); text-align: center; color: var(--muted); font-size: 14px; z-index: 1; }
+    @media (max-width: 640px) {
+      .localVideo { width: 160px; height: 110px; }
+      .selects { display: none; }
     }
   </style>
 </head>
 
 <body>
-  <video id="localVideo" class = "localVideo" autoplay muted></video>
-  <video id="remoteVideo" class = "remoteVideo" autoplay></video>
+  <div class="app">
+    <div class="topbar">
+      <div class="room">
+        <span class="badge">Room</span>
+        <span id="roomId"></span>
+        <span id="connStatus" class="status">initializing…</span>
+      </div>
+      <div class="actions">
+        <button id="copyLinkBtn" class="btn">Copy Invite Link</button>
+      </div>
+    </div>
+    <div class="videos">
+      <div class="helper">Share the link to invite someone.<br/>Call starts when a second person joins.</div>
+      <video id="remoteVideo" class="remoteVideo" autoplay playsinline></video>
+      <video id="localVideo" class="localVideo" autoplay muted playsinline></video>
+    </div>
+    <div class="controls">
+      <button id="toggleMicBtn" class="btn" aria-pressed="false">Mute</button>
+      <button id="toggleCamBtn" class="btn" aria-pressed="false">Stop Video</button>
+      <button id="hangupBtn" class="btn danger">End</button>
+      <div class="selects">
+        <label for="audioIn">Mic</label>
+        <select id="audioIn"></select>
+        <label for="videoIn">Camera</label>
+        <select id="videoIn"></select>
+      </div>
+    </div>
+  </div>
   <script src="script.js"></script>
 </body>
 
