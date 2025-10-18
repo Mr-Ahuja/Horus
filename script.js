@@ -15,6 +15,7 @@ const els = {
   localVideo: document.getElementById('localVideo'),
   remoteVideo: document.getElementById('remoteVideo'),
   remoteAudio: document.getElementById('remoteAudio'),
+  speakerBtn: document.getElementById('speakerBtn'),
 };
 
 const landing = document.getElementById('landing');
@@ -30,6 +31,7 @@ let drone = null; let room = null; let pc = null; let localStream = null; let en
 let roomTitle = '';
 const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 let pendingCandidates = [];
+let outputs = []; let speakerMode = true;
 
 // Helpers
 function setStatus(text, cls){ els.connStatus.textContent = text; els.connStatus.classList.remove('ok','warn','err'); if(cls) els.connStatus.classList.add(cls); }
@@ -62,6 +64,11 @@ goBtn?.addEventListener('click', () => {
 els.toggleMicBtn?.addEventListener('click', () => { if(!localStream) return; const t = localStream.getAudioTracks()[0]; if(!t) return; t.enabled = !t.enabled; els.toggleMicBtn.setAttribute('aria-pressed', String(!t.enabled)); const icon=els.toggleMicBtn.querySelector('span.material-icons'); if(icon) icon.textContent = t.enabled ? 'mic' : 'mic_off'; });
 els.toggleCamBtn?.addEventListener('click', () => { if(!localStream) return; const t = localStream.getVideoTracks()[0]; if(!t) return; t.enabled = !t.enabled; els.toggleCamBtn.setAttribute('aria-pressed', String(!t.enabled)); const icon=els.toggleCamBtn.querySelector('span.material-icons'); if(icon) icon.textContent = t.enabled ? 'videocam' : 'videocam_off'; });
 els.hangupBtn?.addEventListener('click', () => { try{ pc?.close(); }catch{} localStream?.getTracks().forEach(t=>t.stop()); els.localVideo.srcObject=null; els.remoteVideo.srcObject=null; if(!ended){ ended=true; publish({ endAll:true }); setTimeout(()=>{ location.hash=''; landing?.classList.remove('hidden'); startStars(true); },300); } });
+
+// Speaker toggle (hide on unsupported)
+if (!('setSinkId' in HTMLMediaElement.prototype)) { if (els.speakerBtn) els.speakerBtn.style.display = 'none'; }
+function updateSpeakerIcon(){ const ic = els.speakerBtn?.querySelector('span.material-icons'); if(ic) ic.textContent = speakerMode ? 'speaker' : 'headset'; }
+els.speakerBtn?.addEventListener('click', () => { speakerMode = !speakerMode; updateSpeakerIcon(); try{ routeToSpeaker(); }catch{} });
 
 // Devices
 els.audioIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if(!localStream) return; try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:id}}}); const nt=s.getAudioTracks()[0]; const sender=pc?.getSenders().find(x=>x.track && x.track.kind==='audio'); if(sender) sender.replaceTrack(nt); localStream.getAudioTracks().forEach(t=>t.stop()); localStream.removeTrack(localStream.getAudioTracks()[0]); localStream.addTrack(nt);}catch(err){ onError(err); }});
