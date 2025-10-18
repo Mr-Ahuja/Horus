@@ -28,6 +28,7 @@ const roomName = 'observable-' + roomHash;
 const configuration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 };
+const MAX_PEERS = 5;
 let room; let localStream;
 const peers = new Map(); // peerId -> RTCPeerConnection
 const remoteTiles = new Map(); // peerId -> HTMLVideoElement
@@ -121,14 +122,33 @@ els.hangupBtn?.addEventListener('click', () => {
   setStatus('ended', 'warn');
 });
 
+async function ensureLocal() {
+  if (localStream) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localStream = stream;
+    els.localVideo.srcObject = stream;
+    await listDevices();
+    if ((Number(els.participants?.textContent)||1) === 1) setStatus('waiting for peers', 'warn');
+  } catch (e) { onError(e); }
+}
+
 drone.on('open', error => {
   if (error) { return onError(error); }
   room = drone.subscribe(roomName);
-  room.on('open', error => { if (error) onError(error); });
+  room.on('open', async error => { if (error) onError(error); else { setStatus('connected to room', 'warn'); await ensureLocal(); } });
   // We're connected to the room and received an array of 'members'
   room.on('members', members => {
     console.log('MEMBERS', members);
+    // Enforce max 5 participants (including self)
+    if (members.length > MAX_PEERS) {
+      setParticipants(members.length);
+      setStatus('room full (max 5)', 'err');
+      try { drone.close(); } catch {}
+      return;
+    }
     setParticipants(members.length);
+    if (members.length === 1) setStatus('waiting for peers', 'warn');
     const myId = drone.clientId;
     // Create a connection for each existing member deterministically
     members
@@ -140,8 +160,14 @@ drone.on('open', error => {
   });
 
   room.on('member_join', member => {
-    setParticipants((Number(els.participants.textContent)||1) + 1);
-    ensurePeer(member.id, true); // we offer to newcomers
+    const current = Number(els.participants.textContent) || 1;
+    if (current >= MAX_PEERS) {
+      setStatus('capacity reached (5)', 'warn');
+      return;
+    }
+    setParticipants(current + 1);
+    // Deterministic offerer to prevent glare
+    ensurePeer(member.id, drone.clientId > member.id);
   });
 
   room.on('member_leave', ({id}) => {
