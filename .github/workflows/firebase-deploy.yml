@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   deploy:
@@ -32,11 +31,18 @@ jobs:
           };
           EOF
 
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Deploy preview on PRs
+        if: github.event_name == 'pull_request'
+        uses: w9jds/firebase-action@v3.0.0
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          projectId: horus-vision-4587f
+          args: hosting:channel:deploy pr-${{ github.event.number }} --project horus-vision-4587f --expires 7d
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
+      - name: Deploy to production on main
+        if: github.event_name == 'push'
+        uses: w9jds/firebase-action@v3.0.0
+        with:
+          args: deploy --only hosting --project horus-vision-4587f
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
