@@ -1,11 +1,11 @@
-// Landing vs Room: do not auto-create a room; show landing when no hash
-var starsRAF = 0; // ensure defined before any startStars() call
+// Two-person WebRTC via ScaleDrone signaling with landing/name modal and duo UI
+var starsRAF = 0;
 
-// UI elements
+// Elements
 const els = {
   roomId: document.getElementById('roomId'),
+  roomTitle: document.getElementById('roomTitle'),
   connStatus: document.getElementById('connStatus'),
-  participants: document.getElementById('participants'),
   copyLinkBtn: document.getElementById('copyLinkBtn'),
   toggleMicBtn: document.getElementById('toggleMicBtn'),
   toggleCamBtn: document.getElementById('toggleCamBtn'),
@@ -13,449 +13,99 @@ const els = {
   audioIn: document.getElementById('audioIn'),
   videoIn: document.getElementById('videoIn'),
   localVideo: document.getElementById('localVideo'),
-  grid: document.getElementById('grid')
+  remoteVideo: document.getElementById('remoteVideo'),
 };
 
-// Landing controls
 const landing = document.getElementById('landing');
 const startRoomBtn = document.getElementById('startRoomBtn');
-const copyLinkLanding = document.getElementById('copyLinkLanding');
 const nameInput = document.getElementById('nameInput');
 const roomTitleInput = document.getElementById('roomTitleInput');
 const roomInput = document.getElementById('roomInput');
-const joinBtn = document.getElementById('joinBtn');
-
-let roomHash = location.hash.substring(1);
-if (roomHash) { els.roomId.textContent = roomHash; if (landing) landing.classList.add('hidden'); }
-else { if (landing) landing.classList.remove('hidden'); }
-
-// TODO: Replace with your own channel ID (currently demo)
-let drone = null;
-// Room name needs to be prefixed with 'observable-'
-let roomName = roomHash ? 'observable-' + roomHash : null;
-const configuration = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-};
-const MAX_PEERS = 5;
-let room; let localStream; let ended = false; let myName = ''; let roomTitle = '';
-const peerState = new Map(); // peerId -> { makingOffer, polite }
-const peers = new Map(); // peerId -> RTCPeerConnection
-const remoteTiles = new Map(); // peerId -> HTMLVideoElement
-const names = new Map(); // peerId -> display name
-function displayNameFor(id){ return names.get(id) || id.slice(0,6); }
-
-function setStatus(text, cls) {
-  els.connStatus.textContent = text;
-  els.connStatus.classList.remove('ok', 'warn', 'err');
-  if (cls) els.connStatus.classList.add(cls);
-}
-
-function onSuccess() {}
-function onError(error) { console.error(error); setStatus('error', 'err'); }
-
-function setParticipants(count) {
-  if (els.participants) els.participants.textContent = String(count);
-}
-
-// Copy invite link
-els.copyLinkBtn?.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(location.href);
-    els.copyLinkBtn.textContent = 'Link Copied';
-    setTimeout(() => (els.copyLinkBtn.textContent = 'Copy Invite Link'), 1500);
-  } catch (_) {
-    // fallback
-    prompt('Copy this link', location.href);
-  }
-});
-
-copyLinkLanding?.addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(location.origin + location.pathname); } catch (_) {}
-});
-
-startRoomBtn?.addEventListener('click', () => {
-  myName = (nameInput?.value || '').trim() || (localStorage.getItem('hv_name') || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
-  roomTitle = (roomTitleInput?.value || '').trim();
-  if (myName) localStorage.setItem('hv_name', myName);
-  roomHash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
-  location.hash = roomHash;
-  begin();
-});
-
-joinBtn?.addEventListener('click', () => {
-  myName = (nameInput?.value || '').trim() || (localStorage.getItem('hv_name') || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
-  const val = (roomInput?.value || '').trim();
-  if (!val) return;
-  roomTitle = (roomTitleInput?.value || '').trim();
-  if (myName) localStorage.setItem('hv_name', myName);
-  try {
-    if (val.includes('http')) {
-      const url = new URL(val);
-      location.href = url.origin + url.pathname + url.hash;
-    } else {
-      location.hash = val.replace(/^#/, '');
-      begin();
-    }
-  } catch (_) {}
-});
-
-// List and update available devices
-async function listDevices() {
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const audios = devices.filter(d => d.kind === 'audioinput');
-    const videos = devices.filter(d => d.kind === 'videoinput');
-    els.audioIn.innerHTML = audios.map(d => `<option value="${d.deviceId}">${d.label || 'Microphone'}</option>`).join('');
-    els.videoIn.innerHTML = videos.map(d => `<option value="${d.deviceId}">${d.label || 'Camera'}</option>`).join('');
-  } catch (e) { console.warn('enumerateDevices failed', e); }
-}
-
-async function switchTrack(kind, deviceId) {
-  if (!localStream) return;
-  const constraints = kind === 'videoinput' ? { video: { deviceId: { exact: deviceId } } } : { audio: { deviceId: { exact: deviceId } } };
-  try {
-    const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-    const newTrack = newStream.getTracks()[0];
-    // Replace track on all peer connections
-    peers.forEach((pc) => {
-      const sender = pc.getSenders().find(s => s.track && s.track.kind === newTrack.kind);
-      if (sender) sender.replaceTrack(newTrack);
-    });
-    // update local preview
-    const oldTrack = localStream.getTracks().find(t => t.kind === newTrack.kind);
-    if (oldTrack) { oldTrack.stop(); localStream.removeTrack(oldTrack); }
-    localStream.addTrack(newTrack);
-  } catch (e) { onError(e); }
-}
-
-els.audioIn?.addEventListener('change', (e) => switchTrack('audioinput', e.target.value));
-els.videoIn?.addEventListener('change', (e) => switchTrack('videoinput', e.target.value));
-
-// Toggle buttons
-els.toggleMicBtn?.addEventListener('click', () => {
-  if (!localStream) return;
-  const track = localStream.getAudioTracks()[0];
-  if (!track) return;
-  track.enabled = !track.enabled;
-  els.toggleMicBtn.setAttribute('aria-pressed', String(!track.enabled));
-  els.toggleMicBtn.textContent = track.enabled ? 'Mute' : 'Unmute';
-});
-
-els.toggleCamBtn?.addEventListener('click', () => {
-  if (!localStream) return;
-  const track = localStream.getVideoTracks()[0];
-  if (!track) return;
-  track.enabled = !track.enabled;
-  els.toggleCamBtn.setAttribute('aria-pressed', String(!track.enabled));
-  els.toggleCamBtn.textContent = track.enabled ? 'Stop Video' : 'Start Video';
-});
-
-els.hangupBtn?.addEventListener('click', () => {
-  try { peers.forEach(pc => pc.close()); peers.clear(); } catch {}
-  localStream?.getTracks().forEach(t => t.stop());
-  if (els.localVideo) els.localVideo.srcObject = null;
-  // remove remote tiles
-  remoteTiles.forEach((vid, id) => {
-    const tile = document.getElementById(`tile-${id}`);
-    tile?.remove();
-  });
-  remoteTiles.clear();
-  if (!ended) {
-    ended = true;
-    setStatus('ended', 'warn');
-    try { sendMessage({ endAll: true }); } catch {}
-    setTimeout(() => { location.hash=''; if (landing) landing.classList.remove('hidden'); }, 300);
-  }
-});
-
-async function ensureLocal() {
-  if (localStream) return;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    localStream = stream;
-    els.localVideo.srcObject = stream;
-    await listDevices();
-    if ((Number(els.participants?.textContent)||1) === 1) setStatus('waiting for peers', 'warn');
-  } catch (e) { onError(e); }
-}
-
-function begin() {
-  if (landing) landing.classList.add('hidden');
-  if (!roomHash) roomHash = location.hash.substring(1);
-  els.roomId.textContent = roomHash;
-  if (roomTitle) { const rt = document.getElementById('roomTitle'); if (rt) rt.textContent = roomTitle; }
-  roomName = 'observable-' + roomHash;
-  drone = new ScaleDrone('yiS12Ts5RdNhebyM');
-  attachDrone();
-  startStars(false);
-}
-
-// If user followed a link, prompt for name first if unknown
-const storedName = (localStorage.getItem('hv_name') || '').trim();
+const goBtn = document.getElementById('goBtn');
 const nameModal = document.getElementById('nameModal');
 const modalName = document.getElementById('modalName');
 const modalJoinBtn = document.getElementById('modalJoinBtn');
-if (roomHash) {
-  if (!storedName) {
-    if (landing) landing.classList.add('hidden');
-    if (nameModal) { nameModal.classList.add('show'); modalName.value = ''; }
-  } else {
-    myName = storedName; begin();
-  }
-} else {
-  startStars(true);
-}
 
-modalJoinBtn?.addEventListener('click', () => {
-  myName = (modalName?.value || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
-  if (myName) localStorage.setItem('hv_name', myName);
-  nameModal?.classList.remove('show');
-  begin();
+// State
+let roomHash = location.hash.substring(1);
+let roomName = roomHash ? 'observable-' + roomHash : null;
+let drone = null; let room = null; let pc = null; let localStream = null; let ended = false;
+let myName = ''; let roomTitle = '';
+const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+let pendingCandidates = [];
+
+// Helpers
+function setStatus(text, cls){ els.connStatus.textContent = text; els.connStatus.classList.remove('ok','warn','err'); if(cls) els.connStatus.classList.add(cls); }
+function onError(e){ console.error(e); setStatus('error','err'); }
+function publish(msg){ if(room && drone) drone.publish({ room: roomName, message: msg }); }
+
+// Landing visibility
+if (roomHash) { els.roomId.textContent = roomHash; landing?.classList.add('hidden'); } else { landing?.classList.remove('hidden'); }
+
+// Copy link
+els.copyLinkBtn?.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(location.href); els.copyLinkBtn.textContent = 'Link Copied'; setTimeout(()=>els.copyLinkBtn.textContent='Copy Link',1500); }
+  catch { prompt('Copy this link', location.href); }
 });
 
-function attachDrone() {
-drone.on('open', error => {
-  if (error) { return onError(error); }
-  room = drone.subscribe(roomName);
-  room.on('open', async error => { if (error) onError(error); else { setStatus('connected to room', 'warn'); await ensureLocal(); } });
-  // We're connected to the room and received an array of 'members'
-    room.on('members', members => {
-      console.log('MEMBERS', members);
-    // Enforce max 5 participants (including self)
-    if (members.length > MAX_PEERS) {
-      setParticipants(members.length);
-      setStatus('room full (max 5)', 'err');
-      try { drone.close(); } catch {}
-      return;
-    }
-    setParticipants(members.length);
-    if (members.length === 1) setStatus('waiting for peers', 'warn');
-    const myId = drone.clientId;
-    // Create a connection for each existing member deterministically
-      members
-        .filter(m => m.id !== myId)
-        .forEach(m => {
-          const isOfferer = myId > m.id; // simple deterministic rule
-          ensurePeer(m.id, isOfferer);
-        });
-      // Introduce our name and optional room title
-      try { sendMessage({ intro: true, name: myName, roomTitle: roomTitle || '' }); } catch {}
-    });
-
-  room.on('member_join', member => {
-    const current = Number(els.participants.textContent) || 1;
-    if (current >= MAX_PEERS) {
-      setStatus('capacity reached (5)', 'warn');
-      return;
-    }
-    setParticipants(current + 1);
-    // Deterministic offerer to prevent glare
-    ensurePeer(member.id, drone.clientId > member.id);
-  });
-
-  room.on('member_leave', ({id}) => {
-    setParticipants(Math.max(1, (Number(els.participants.textContent)||1) - 1));
-    const pc = peers.get(id);
-    if (pc) { try { pc.close(); } catch {} peers.delete(id); }
-    const tile = document.getElementById(`tile-${id}`);
-    if (tile) tile.remove();
-    remoteTiles.delete(id);
-    updateLayoutMode();
-  });
+// Start/join actions (user gesture => audio works)
+startRoomBtn?.addEventListener('click', () => {
+  myName = (nameInput?.value || localStorage.getItem('hv_name') || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
+  roomTitle = (roomTitleInput?.value || '').trim(); if (roomTitle) els.roomTitle.textContent = roomTitle;
+  localStorage.setItem('hv_name', myName);
+  roomHash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
+  location.hash = roomHash; begin();
 });
-}
 
-// Send signaling data via Scaledrone
-function sendMessage(message, to) {
-  const payload = Object.assign({}, message, { from: drone.clientId });
-  if (to) payload.to = to;
-  drone.publish({ room: roomName, message: payload });
-}
+goBtn?.addEventListener('click', () => {
+  myName = (nameInput?.value || localStorage.getItem('hv_name') || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
+  roomTitle = (roomTitleInput?.value || '').trim(); if (roomTitle) els.roomTitle.textContent = roomTitle;
+  localStorage.setItem('hv_name', myName);
+  const code = (roomInput?.value || '').trim(); if(!code) return; location.hash = code.replace(/^#/, ''); begin();
+});
 
-function ensurePeer(peerId, isOfferer) {
-  if (peers.has(peerId)) return peers.get(peerId);
-  const pc = new RTCPeerConnection(configuration);
-  peers.set(peerId, pc);
-  peerState.set(peerId, { makingOffer: false, polite: (drone.clientId < peerId) });
+// Media controls
+els.toggleMicBtn?.addEventListener('click', () => { if(!localStream) return; const t = localStream.getAudioTracks()[0]; if(!t) return; t.enabled = !t.enabled; els.toggleMicBtn.setAttribute('aria-pressed', String(!t.enabled)); els.toggleMicBtn.querySelector('span:last-child').textContent = t.enabled ? 'Mute' : 'Unmute'; });
+els.toggleCamBtn?.addEventListener('click', () => { if(!localStream) return; const t = localStream.getVideoTracks()[0]; if(!t) return; t.enabled = !t.enabled; els.toggleCamBtn.setAttribute('aria-pressed', String(!t.enabled)); els.toggleCamBtn.querySelector('span:last-child').textContent = t.enabled ? 'Stop' : 'Start'; });
+els.hangupBtn?.addEventListener('click', () => { try{ pc?.close(); }catch{} localStream?.getTracks().forEach(t=>t.stop()); els.localVideo.srcObject=null; els.remoteVideo.srcObject=null; if(!ended){ ended=true; publish({ endAll:true }); setTimeout(()=>{ location.hash=''; landing?.classList.remove('hidden'); startStars(true); },300); } });
 
-  pc.addEventListener('connectionstatechange', () => {
-    const s = pc.connectionState;
-    if (s === 'connected') setStatus('connected', 'ok');
-    else if (s === 'failed') setStatus('failed', 'err');
-    else setStatus(s, s === 'connecting' ? 'warn' : undefined);
+// Devices
+els.audioIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if(!localStream) return; try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:id}}}); const nt=s.getAudioTracks()[0]; const sender=pc?.getSenders().find(x=>x.track && x.track.kind==='audio'); if(sender) sender.replaceTrack(nt); localStream.getAudioTracks().forEach(t=>t.stop()); localStream.removeTrack(localStream.getAudioTracks()[0]); localStream.addTrack(nt);}catch(err){ onError(err); }});
+els.videoIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if(!localStream) return; try{ const s=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:id}}}); const nt=s.getVideoTracks()[0]; const sender=pc?.getSenders().find(x=>x.track && x.track.kind==='video'); if(sender) sender.replaceTrack(nt); localStream.getVideoTracks().forEach(t=>t.stop()); localStream.removeTrack(localStream.getVideoTracks()[0]); localStream.addTrack(nt);}catch(err){ onError(err); }});
+
+async function ensureLocal(){ if(localStream) return; const stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true }); localStream = stream; els.localVideo.srcObject = stream; await listDevices(); }
+async function listDevices(){ try{ const dev=await navigator.mediaDevices.enumerateDevices(); els.audioIn.innerHTML=dev.filter(d=>d.kind==='audioinput').map(d=>`<option value="${d.deviceId}">${d.label||'Mic'}</option>`).join(''); els.videoIn.innerHTML=dev.filter(d=>d.kind==='videoinput').map(d=>`<option value="${d.deviceId}">${d.label||'Camera'}</option>`).join(''); }catch(e){ console.warn('enumerateDevices failed',e);} }
+
+function begin(){ landing?.classList.add('hidden'); startStars(false); if(!roomHash) roomHash=location.hash.substring(1); els.roomId.textContent=roomHash; roomName='observable-'+roomHash; const stored=(localStorage.getItem('hv_name')||'').trim(); if(stored && !myName) myName=stored; drone = new ScaleDrone('yiS12Ts5RdNhebyM'); attach(); }
+
+function attach(){
+  drone.on('open', async err => {
+    if(err) return onError(err);
+    room = drone.subscribe(roomName);
+    room.on('open', async e => { if(e) onError(e); else { setStatus('connected to room','warn'); try{ await ensureLocal(); }catch(e2){ onError(e2); } } });
+    room.on('members', members => { if(members.length>2){ setStatus('room full (2 only)','err'); try{ drone.close(); }catch{} return; } const isOfferer = members.length===2; startWebRTC(isOfferer); });
+    room.on('data', (message, client) => { if(client.id===drone.clientId) return; if(message.endAll){ els.hangupBtn?.click(); return; } if(!pc) return; if(message.sdp){ const desc=new RTCSessionDescription(message.sdp); pc.setRemoteDescription(desc).then(()=>{ if(desc.type==='offer'){ pc.createAnswer().then(localDescCreated).catch(onError); } flushCandidates(); }).catch(onError); } else if(message.candidate){ handleRemoteCandidate(message.candidate); } });
   });
-
-  pc.onicecandidate = event => {
-    if (event.candidate) sendMessage({ candidate: event.candidate }, peerId);
-  };
-
-  pc.ontrack = event => {
-    const stream = event.streams[0];
-    let vid = remoteTiles.get(peerId);
-    if (!vid) {
-      const tile = document.createElement('div');
-      tile.className = 'tile';
-      tile.id = `tile-${peerId}`;
-      vid = document.createElement('video');
-      vid.autoplay = true; vid.playsInline = true; vid.setAttribute('playsinline','');
-      tile.appendChild(vid);
-      const label = document.createElement('div');
-      label.className = 'label';
-      label.textContent = displayNameFor(peerId);
-      tile.appendChild(label);
-      els.grid.appendChild(tile);
-      remoteTiles.set(peerId, vid);
-    }
-    if (!vid.srcObject || vid.srcObject.id !== stream.id) {
-      vid.srcObject = stream;
-    }
-    updateLayoutMode();
-  };
-
-  // Add our tracks if already available
-  if (localStream) {
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-  }
-
-  if (isOfferer) {
-    // Create offer after transceivers added
-    const maybeOffer = async () => {
-      const st = peerState.get(peerId); if (!st) return;
-      try { st.makingOffer = true; const offer = await pc.createOffer(); await localDescCreated(pc, offer, peerId); }
-      catch(e){ onError(e); } finally { st.makingOffer = false; }
-    };
-    if (!localStream) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(async stream => {
-        localStream = stream;
-        els.localVideo.srcObject = stream;
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
-        await listDevices();
-        maybeOffer();
-      }, onError);
-    } else {
-      maybeOffer();
-    }
-  } else {
-    // Ensure we have local media for when answer is needed
-    if (!localStream) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(async stream => {
-        localStream = stream;
-        els.localVideo.srcObject = stream;
-        await listDevices();
-      }, onError);
-    }
-  }
-
-  return pc;
 }
 
-// Listen to signaling data from Scaledrone (room-level)
-if (!room) {
-  // no-op until room open handler sets it, but we keep scope readiness
+function startWebRTC(isOfferer){ if(pc) return; pc = new RTCPeerConnection(configuration); pendingCandidates = [];
+  pc.onconnectionstatechange = () => { const s=pc.connectionState; if(s==='connected') setStatus('connected','ok'); else if(s==='failed') setStatus('failed','err'); else setStatus(s, s==='connecting'?'warn':undefined); };
+  pc.onicecandidate = ev => { if(ev.candidate) publish({ candidate: ev.candidate }); };
+  pc.ontrack = ev => { const stream = ev.streams[0]; if(!els.remoteVideo.srcObject || els.remoteVideo.srcObject.id!==stream.id){ els.remoteVideo.srcObject = stream; } };
+  if(localStream){ localStream.getTracks().forEach(t=>pc.addTrack(t, localStream)); }
+  else { navigator.mediaDevices.getUserMedia({video:true,audio:true}).then(stream=>{ localStream=stream; els.localVideo.srcObject=stream; stream.getTracks().forEach(t=>pc.addTrack(t,stream)); }).catch(onError); }
+  if(isOfferer){ pc.onnegotiationneeded = () => { pc.createOffer().then(localDescCreated).catch(onError); } }
 }
 
-// Attach data listener once room is defined
-const attachRoomDataListener = () => {
-  room.on('data', (message, client) => {
-    if (client.id === drone.clientId) return; // ignore our own broadcast
-    if (message.to && message.to !== drone.clientId) return; // not addressed to us
-    if (message.endAll && !ended) {
-      ended = true;
-      els.hangupBtn?.click();
-      setStatus('call ended', 'warn');
-      return;
-    }
-    const peerId = message.from || client.id;
-    let pc = peers.get(peerId);
-    if (!pc) pc = ensurePeer(peerId, false);
-    if (message.intro && typeof message.name === 'string') {
-      names.set(peerId, message.name);
-      const label = document.querySelector(`#tile-${peerId} .label`);
-      if (label) label.textContent = displayNameFor(peerId);
-      return;
-    }
-    if (message.sdp) {
-      const desc = new RTCSessionDescription(message.sdp);
-      const st = peerState.get(peerId) || { makingOffer: false, polite: true };
-      const offerCollision = desc.type === 'offer' && (st.makingOffer || pc.signalingState !== 'stable');
-      const ignoreOffer = !st.polite && offerCollision;
-      if (ignoreOffer) return;
-      if (desc.type === 'answer' && pc.signalingState !== 'have-local-offer') {
-        return; // ignore unexpected answers to avoid InvalidStateError
-      }
-      (offerCollision ? pc.setLocalDescription({ type: 'rollback' }) : Promise.resolve())
-        .then(() => pc.setRemoteDescription(desc))
-        .then(async () => {
-          if (desc.type === 'offer') {
-            const answer = await pc.createAnswer();
-            await localDescCreated(pc, answer, peerId);
-          }
-        })
-        .catch(onError);
-    } else if (message.candidate) {
-      pc.addIceCandidate(new RTCIceCandidate(message.candidate)).catch(onError);
-    }
-  });
-};
+function localDescCreated(desc){ pc.setLocalDescription(desc).then(()=> publish({ sdp: pc.localDescription })).catch(onError); }
+function handleRemoteCandidate(c){ if(pc.remoteDescription) pc.addIceCandidate(new RTCIceCandidate(c)).catch(onError); else pendingCandidates.push(c); }
+function flushCandidates(){ while(pendingCandidates.length){ const c=pendingCandidates.shift(); pc.addIceCandidate(new RTCIceCandidate(c)).catch(onError); } }
 
-// Defer attaching until room is available
-const roomReady = setInterval(() => { if (room) { clearInterval(roomReady); attachRoomDataListener(); } }, 50);
+// Name modal for deep links
+const storedName=(localStorage.getItem('hv_name')||'').trim();
+if(roomHash){ if(!storedName){ landing?.classList.add('hidden'); nameModal?.classList.add('show'); } else { myName=storedName; begin(); } } else { startStars(true); }
+modalJoinBtn?.addEventListener('click', ()=>{ myName=(modalName?.value||'').trim()||`User-${Math.floor(Math.random()*1000)}`; localStorage.setItem('hv_name', myName); nameModal?.classList.remove('show'); begin(); });
 
-function localDescCreated(pc, desc, toPeerId) {
-  return pc.setLocalDescription(desc)
-    .then(() => sendMessage({ sdp: pc.localDescription }, toPeerId))
-    .catch(onError);
-}
+// Celestial landing animation
+function startStars(enable){ const cnv=document.getElementById('stars'); if(!cnv) return; const ctx=cnv.getContext('2d'); let w=0,h=0,particles=[]; function resize(){ const dpr=Math.min(2,window.devicePixelRatio||1); w=cnv.clientWidth; h=cnv.clientHeight; cnv.width=Math.floor(w*dpr); cnv.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0);} function init(){ const base=(w*h); const density=(Math.min(w,h)<520)?26000:18000; const count=Math.max(60,Math.floor(base/density)); particles=new Array(count).fill(0).map(()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.2,vy:(Math.random()-0.5)*0.2,r:Math.random()*1.3+0.3})); } function step(){ ctx.clearRect(0,0,w,h); ctx.fillStyle='#9fb3cc'; for(const p of particles){ p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>w) p.vx*=-1; if(p.y<0||p.y>h) p.vy*=-1; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); } ctx.strokeStyle='#264567'; ctx.globalAlpha=0.6; ctx.lineWidth=0.5; for(let i=0;i<particles.length;i++){ for(let j=i+1;j<particles.length;j++){ const a=particles[i],b=particles[j]; const dx=a.x-b.x,dy=a.y-b.y; const d=dx*dx+dy*dy; if(d<120*120 && Math.random()<0.02){ ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); } } } ctx.globalAlpha=1; starsRAF=requestAnimationFrame(step);} function stop(){ if(starsRAF) cancelAnimationFrame(starsRAF); starsRAF=0;} if(enable){ resize(); init(); step(); window.addEventListener('resize', ()=>{ resize(); init(); }); } else { stop(); } }
 
-// Celestial landing animation (lightweight stars + constellations)
-function startStars(enable){
-  const cnv = document.getElementById('stars');
-  if(!cnv) return;
-  const ctx = cnv.getContext('2d');
-  let w=0,h=0,particles=[];
-  function resize(){
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    w = cnv.clientWidth; h = cnv.clientHeight;
-    cnv.width = Math.floor(w * dpr); cnv.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-  function init(){
-    const base = (w*h);
-    const density = (Math.min(w, h) < 520) ? 26000 : 18000;
-    const count = Math.max(60, Math.floor(base/density));
-    particles = new Array(count).fill(0).map(()=>({
-      x: Math.random()*w,
-      y: Math.random()*h,
-      vx: (Math.random()-0.5)*0.2,
-      vy: (Math.random()-0.5)*0.2,
-      r: Math.random()*1.3+0.3
-    }));
-  }
-  function step(){
-    ctx.clearRect(0,0,w,h);
-    // stars
-    ctx.fillStyle = '#9fb3cc';
-    for(const p of particles){
-      p.x += p.vx; p.y += p.vy;
-      if(p.x<0||p.x>w) p.vx*=-1;
-      if(p.y<0||p.y>h) p.vy*=-1;
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
-    }
-    // constellations (connect near points)
-    ctx.strokeStyle = '#264567'; ctx.globalAlpha = 0.6; ctx.lineWidth = 0.5;
-    for(let i=0;i<particles.length;i++){
-      for(let j=i+1;j<particles.length;j++){
-        const a=particles[i], b=particles[j];
-        const dx=a.x-b.x, dy=a.y-b.y; const d=dx*dx+dy*dy;
-        if(d<120*120 && Math.random()<0.02){
-          ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-        }
-      }
-    }
-    ctx.globalAlpha = 1;
-    starsRAF = requestAnimationFrame(step);
-  }
-  function stop(){ if(starsRAF) cancelAnimationFrame(starsRAF); starsRAF=0; }
-  if(enable){ resize(); init(); step(); window.addEventListener('resize', ()=>{ resize(); init(); }); }
-  else { stop(); }
-}

@@ -52,11 +52,9 @@
     .btn:hover { border-color: #2a3545; background: #131b26; }
     .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
     .btn.danger { background: var(--danger); border-color: var(--danger); color: white; }
-    .videos { position: relative; width: 100%; height: 100%; background: #000; padding: 10px; overflow: hidden; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; height: 100%; align-content: start; }
-    .tile { position: relative; border-radius: 12px; overflow: hidden; background: #0a0a0a; border: 1px solid #1c2430; aspect-ratio: 1.618/1; }
-    .tile video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
-    .label { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,0.55); padding: 2px 6px; border-radius: 6px; font-size: 12px; color: #d9e1ee; }
+    .videos { position: relative; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    .remoteVideo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .localVideo { position: absolute; bottom: 16px; right: 16px; width: min(30vw, 220px); aspect-ratio: 1.618/1; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.4); border: 1px solid #1c2430; background: #000; object-fit: cover; z-index: 3; }
     .controls { display: flex; gap: 10px; align-items: center; justify-content: center; padding: 10px; z-index: 3; background: linear-gradient(0deg, rgba(0,0,0,0.35), rgba(0,0,0,0)); position: sticky; bottom: 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
     .selects { display: flex; gap: 8px; align-items: center; }
     select { background: #0f151d; color: var(--text); border: 1px solid #1e2733; border-radius: 8px; padding: 6px 10px; }
@@ -80,9 +78,12 @@
     .cta { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .btn.mellange { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #0b0f14; border-color: #ffffff22; }
     .btn.ghost { background: transparent; border-color: #ffffff33; color: var(--text); }
-    .join { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
-    .join input { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #1e2733; background: #0f151d; color: var(--text); min-height: 44px; }
-    @media (max-width: 520px) { .join { grid-template-columns: 1fr; } }
+    .stack { display: grid; gap: 8px; margin-top: 8px; }
+    .stack input { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #1e2733; background: #0f151d; color: var(--text); min-height: 44px; }
+    .joinbar { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px; }
+    .joinbar input { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #1e2733; background: #0f151d; color: var(--text); min-height: 44px; }
+    .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 12px; border: 1px solid #1e2733; background: #0f151d; color: var(--text); }
+    @media (max-width: 520px) { .stack { gap: 8px; } }
 
     /* Duo mode (one remote) */
     .mode-duo .grid { display: block; }
@@ -121,16 +122,17 @@
       <h1>Horus Calls</h1>
       <div class="cta">
         <button id="startRoomBtn" class="btn mellange"><span class="material-icons" style="font-size:18px">auto_awesome</span>Start Room</button>
-        <button id="copyLinkLanding" class="btn ghost"><span class="material-icons" style="font-size:18px">link</span>Copy Current Link</button>
       </div>
-      <div class="join">
+      <div class="stack">
         <input id="nameInput" placeholder="Your name" />
         <input id="roomTitleInput" placeholder="Room name (optional)" />
-        <input id="roomInput" placeholder="Enter room code or URL" />
-        <button id="joinBtn" class="btn primary">Join</button>
+        <div class="joinbar">
+          <input id="roomInput" placeholder="Enter room code" />
+          <button id="goBtn" class="icon-btn" aria-label="Join"><span class="material-icons">arrow_forward</span></button>
+        </div>
       </div>
-      <div style="font-size:12px;color:#9fb3cc">Credits: Horus Vision by Preetam Ahuja</div>
     </div>
+    <div style="position:absolute;bottom:16px;left:0;right:0;text-align:center;font-size:12px;color:#9fb3cc">Credits: Horus Vision by Preetam Ahuja</div>
   </div>
   <div class="app">
     <div class="topbar">
@@ -146,13 +148,8 @@
       </div>
     </div>
     <div class="videos">
-      <div class="helper">Share the link to invite people. Tiles appear as they join.</div>
-      <div id="grid" class="grid">
-        <div class="tile" id="tile-self">
-          <video id="localVideo" autoplay muted playsinline></video>
-          <div class="label">You</div>
-        </div>
-      </div>
+      <video id="remoteVideo" class="remoteVideo" autoplay playsinline></video>
+      <video id="localVideo" class="localVideo" autoplay muted playsinline></video>
     </div>
     <div class="controls">
       <button id="toggleMicBtn" class="btn" aria-pressed="false"><span class="material-icons" style="font-size:18px">mic</span><span>Mute</span></button>
