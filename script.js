@@ -44,7 +44,7 @@ function onError(e){ console.error(e); setStatus('error','err'); }
 function publish(msg){ if(room && drone) drone.publish({ room: roomName, message: msg }); }
 
 // If opened via link, auto-join; else show landing
-if (roomHash) { els.roomId.textContent = roomHash; begin(); }
+if (roomHash) { begin(); }
 else { landing?.classList.remove('hidden'); startStars(true); }
 
 // Copy link
@@ -82,7 +82,7 @@ els.videoIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if
 async function ensureLocal(){ if(localStream) return; const stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true }); localStream = stream; els.localVideo.srcObject = stream; await listDevices(); setupMicLevel(); }
 async function listDevices(){ try{ const dev=await navigator.mediaDevices.enumerateDevices(); els.audioIn.innerHTML=dev.filter(d=>d.kind==='audioinput').map(d=>`<option value="${d.deviceId}">${d.label||'Mic'}</option>`).join(''); els.videoIn.innerHTML=dev.filter(d=>d.kind==='videoinput').map(d=>`<option value="${d.deviceId}">${d.label||'Camera'}</option>`).join(''); }catch(e){ console.warn('enumerateDevices failed',e);} }
 
-function begin(){ landing?.classList.add('hidden'); startStars(false); if(!roomHash) roomHash=location.hash.substring(1); els.roomId.textContent=roomHash; roomName='observable-'+roomHash; drone = new ScaleDrone('yiS12Ts5RdNhebyM'); attach(); routeToSpeaker(); }
+function begin(){ landing?.classList.add('hidden'); startStars(false); if(!roomHash) roomHash=location.hash.substring(1); roomName='observable-'+roomHash; drone = new ScaleDrone('yiS12Ts5RdNhebyM'); attach(); routeToSpeaker(); }
 
 function attach(){
   drone.on('open', async err => {
@@ -118,16 +118,15 @@ function startWebRTC(isOfferer){ if(pc) return; pc = new RTCPeerConnection(confi
 function localDescCreated(desc){ pc.setLocalDescription(desc).then(()=> publish({ sdp: pc.localDescription })).catch(onError); }
 function handleRemoteCandidate(c){ if(pc.remoteDescription) pc.addIceCandidate(new RTCIceCandidate(c)).catch(onError); else pendingCandidates.push(c); }
 function flushCandidates(){ while(pendingCandidates.length){ const c=pendingCandidates.shift(); pc.addIceCandidate(new RTCIceCandidate(c)).catch(onError); } }
-function routeToSpeaker(){
+async function routeToSpeaker(){
   try {
     const sinkTarget = els.remoteAudio || els.remoteVideo;
     if (typeof sinkTarget.setSinkId === 'function') {
-      navigator.mediaDevices.enumerateDevices().then(list => {
-        const outs = list.filter(d => d.kind === 'audiooutput');
-        const sp = outs.find(o => /speaker/i.test(o.label));
-        const id = sp ? sp.deviceId : (outs[0]?.deviceId || 'default');
-        return sinkTarget.setSinkId(id);
-      }).catch(()=>{});
+      const list = await navigator.mediaDevices.enumerateDevices();
+      const outs = list.filter(d => d.kind === 'audiooutput');
+      const sp = outs.find(o => /speaker/i.test(o.label));
+      const id = sp ? sp.deviceId : (outs[0]?.deviceId || 'default');
+      await sinkTarget.setSinkId(id);
     }
   } catch(e) {}
 }
