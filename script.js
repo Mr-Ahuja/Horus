@@ -38,9 +38,9 @@ function setStatus(text, cls){ els.connStatus.textContent = text; els.connStatus
 function onError(e){ console.error(e); setStatus('error','err'); }
 function publish(msg){ if(room && drone) drone.publish({ room: roomName, message: msg }); }
 
-// Landing visibility: keep landing even for shared links; prefill input
-if (roomHash) { els.roomId.textContent = roomHash; if (roomInput) roomInput.value = roomHash; }
-landing?.classList.remove('hidden');
+// If opened via link, auto-join; else show landing
+if (roomHash) { els.roomId.textContent = roomHash; begin(); }
+else { landing?.classList.remove('hidden'); startStars(true); }
 
 // Copy link
 els.copyLinkBtn?.addEventListener('click', async () => {
@@ -71,7 +71,7 @@ function updateSpeakerIcon(){ const ic = els.speakerBtn?.querySelector('span.mat
 els.speakerBtn?.addEventListener('click', () => { speakerMode = !speakerMode; updateSpeakerIcon(); try{ routeToSpeaker(); }catch{} });
 
 // Devices
-els.audioIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if(!localStream) return; try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:id}}}); const nt=s.getAudioTracks()[0]; const sender=pc?.getSenders().find(x=>x.track && x.track.kind==='audio'); if(sender) sender.replaceTrack(nt); localStream.getAudioTracks().forEach(t=>t.stop()); localStream.removeTrack(localStream.getAudioTracks()[0]); localStream.addTrack(nt);}catch(err){ onError(err); }});
+els.audioIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if(!localStream) return; try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:id}}}); const nt=s.getAudioTracks()[0]; const sender=pc?.getSenders().find(x=>x.track && x.track.kind==='audio'); if(sender) sender.replaceTrack(nt); localStream.getAudioTracks().forEach(t=>t.stop()); localStream.removeTrack(localStream.getAudioTracks()[0]); localStream.addTrack(nt); setupMicLevel(); }catch(err){ onError(err); }});
 els.videoIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if(!localStream) return; try{ const s=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:id}}}); const nt=s.getVideoTracks()[0]; const sender=pc?.getSenders().find(x=>x.track && x.track.kind==='video'); if(sender) sender.replaceTrack(nt); localStream.getVideoTracks().forEach(t=>t.stop()); localStream.removeTrack(localStream.getVideoTracks()[0]); localStream.addTrack(nt);}catch(err){ onError(err);} });
 
 async function ensureLocal(){ if(localStream) return; const stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true }); localStream = stream; els.localVideo.srcObject = stream; await listDevices(); }
