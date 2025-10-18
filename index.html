@@ -66,7 +66,7 @@
     .drawer-actions { display: flex; justify-content: flex-end; }
     .level { --level: 0; width: 80px; height: 8px; border-radius: 8px; background: #0f151d; border: 1px solid #1e2733; position: relative; overflow: hidden; }
     .level::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--level) * 100%); background: linear-gradient(90deg,#29c26a,#f5a524); }
-    .selects { display: flex; gap: 8px; align-items: center; }
+    .selects { display: none !important; gap: 8px; align-items: center; }
     select { background: #0f151d; color: var(--text); border: 1px solid #1e2733; border-radius: 8px; padding: 6px 10px; }
     .helper { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); text-align: center; color: var(--muted); font-size: 14px; z-index: 1; }
     @media (max-width: 640px) {
@@ -160,12 +160,6 @@
       <div id="micLevel" class="level" aria-hidden="true"></div>
       <button id="hangupBtn" class="btn danger"><span class="material-icons" style="font-size:18px">call_end</span><span>End</span></button>
       <button id="devicesBtn" class="btn" aria-label="Devices"><span class="material-icons" style="font-size:20px">tune</span></button>
-      <div class="selects">
-        <label for="audioIn">Mic</label>
-        <select id="audioIn"></select>
-        <label for="videoIn">Camera</label>
-        <select id="videoIn"></select>
-      </div>
     </div>
     <div id="devicesDrawer" class="drawer" aria-hidden="true">
       <div class="drawer-card">
