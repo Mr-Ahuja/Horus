@@ -19,6 +19,7 @@ const els = {
 const landing = document.getElementById('landing');
 const startRoomBtn = document.getElementById('startRoomBtn');
 const copyLinkLanding = document.getElementById('copyLinkLanding');
+const nameInput = document.getElementById('nameInput');
 const roomInput = document.getElementById('roomInput');
 const joinBtn = document.getElementById('joinBtn');
 
@@ -34,10 +35,12 @@ const configuration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 };
 const MAX_PEERS = 5;
-let room; let localStream; let ended = false;
+let room; let localStream; let ended = false; let myName = '';
 const peerState = new Map(); // peerId -> { makingOffer, polite }
 const peers = new Map(); // peerId -> RTCPeerConnection
 const remoteTiles = new Map(); // peerId -> HTMLVideoElement
+const names = new Map(); // peerId -> display name
+function displayNameFor(id){ return names.get(id) || id.slice(0,6); }
 
 function setStatus(text, cls) {
   els.connStatus.textContent = text;
@@ -69,12 +72,14 @@ copyLinkLanding?.addEventListener('click', async () => {
 });
 
 startRoomBtn?.addEventListener('click', () => {
+  myName = (nameInput?.value || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
   roomHash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
   location.hash = roomHash;
   begin();
 });
 
 joinBtn?.addEventListener('click', () => {
+  myName = (nameInput?.value || '').trim() || `User-${Math.floor(Math.random()*1000)}`;
   const val = (roomInput?.value || '').trim();
   if (!val) return;
   try {
@@ -153,6 +158,7 @@ els.hangupBtn?.addEventListener('click', () => {
     ended = true;
     setStatus('ended', 'warn');
     try { sendMessage({ endAll: true }); } catch {}
+    setTimeout(() => { location.hash=''; if (landing) landing.classList.remove('hidden'); }, 300);
   }
 });
 
@@ -174,9 +180,11 @@ function begin() {
   roomName = 'observable-' + roomHash;
   drone = new ScaleDrone('yiS12Ts5RdNhebyM');
   attachDrone();
+  startStars(false);
 }
 
 if (roomHash) { begin(); }
+else { startStars(true); }
 
 function attachDrone() {
 drone.on('open', error => {
@@ -184,8 +192,8 @@ drone.on('open', error => {
   room = drone.subscribe(roomName);
   room.on('open', async error => { if (error) onError(error); else { setStatus('connected to room', 'warn'); await ensureLocal(); } });
   // We're connected to the room and received an array of 'members'
-  room.on('members', members => {
-    console.log('MEMBERS', members);
+    room.on('members', members => {
+      console.log('MEMBERS', members);
     // Enforce max 5 participants (including self)
     if (members.length > MAX_PEERS) {
       setParticipants(members.length);
@@ -197,13 +205,15 @@ drone.on('open', error => {
     if (members.length === 1) setStatus('waiting for peers', 'warn');
     const myId = drone.clientId;
     // Create a connection for each existing member deterministically
-    members
-      .filter(m => m.id !== myId)
-      .forEach(m => {
-        const isOfferer = myId > m.id; // simple deterministic rule
-        ensurePeer(m.id, isOfferer);
-      });
-  });
+      members
+        .filter(m => m.id !== myId)
+        .forEach(m => {
+          const isOfferer = myId > m.id; // simple deterministic rule
+          ensurePeer(m.id, isOfferer);
+        });
+      // Introduce our name to the room
+      try { sendMessage({ intro: true, name: myName }); } catch {}
+    });
 
   room.on('member_join', member => {
     const current = Number(els.participants.textContent) || 1;
@@ -263,7 +273,7 @@ function ensurePeer(peerId, isOfferer) {
       tile.appendChild(vid);
       const label = document.createElement('div');
       label.className = 'label';
-      label.textContent = peerId.slice(0, 6);
+      label.textContent = displayNameFor(peerId);
       tile.appendChild(label);
       els.grid.appendChild(tile);
       remoteTiles.set(peerId, vid);
@@ -329,22 +339,27 @@ const attachRoomDataListener = () => {
     const peerId = message.from || client.id;
     let pc = peers.get(peerId);
     if (!pc) pc = ensurePeer(peerId, false);
+    if (message.intro && typeof message.name === 'string') {
+      names.set(peerId, message.name);
+      const label = document.querySelector(`#tile-${peerId} .label`);
+      if (label) label.textContent = displayNameFor(peerId);
+      return;
+    }
     if (message.sdp) {
       const desc = new RTCSessionDescription(message.sdp);
       const st = peerState.get(peerId) || { makingOffer: false, polite: true };
       const offerCollision = desc.type === 'offer' && (st.makingOffer || pc.signalingState !== 'stable');
       const ignoreOffer = !st.polite && offerCollision;
       if (ignoreOffer) return;
+      if (desc.type === 'answer' && pc.signalingState !== 'have-local-offer') {
+        return; // ignore unexpected answers to avoid InvalidStateError
+      }
       (offerCollision ? pc.setLocalDescription({ type: 'rollback' }) : Promise.resolve())
         .then(() => pc.setRemoteDescription(desc))
         .then(async () => {
           if (desc.type === 'offer') {
             const answer = await pc.createAnswer();
             await localDescCreated(pc, answer, peerId);
-          } else if (desc.type === 'answer') {
-            if (pc.signalingState !== 'have-local-offer') {
-              return; // stale/unsolicited answer
-            }
           }
         })
         .catch(onError);
@@ -361,4 +376,51 @@ function localDescCreated(pc, desc, toPeerId) {
   return pc.setLocalDescription(desc)
     .then(() => sendMessage({ sdp: pc.localDescription }, toPeerId))
     .catch(onError);
+}
+
+// Celestial landing animation (lightweight stars + constellations)
+let starsRAF = 0;
+function startStars(enable){
+  const cnv = document.getElementById('stars');
+  if(!cnv) return;
+  const ctx = cnv.getContext('2d');
+  let w=0,h=0,particles=[];
+  function resize(){ w = cnv.width = cnv.clientWidth; h = cnv.height = cnv.clientHeight; }
+  function init(){
+    const count = Math.max(80, Math.floor((w*h)/18000));
+    particles = new Array(count).fill(0).map(()=>({
+      x: Math.random()*w,
+      y: Math.random()*h,
+      vx: (Math.random()-0.5)*0.2,
+      vy: (Math.random()-0.5)*0.2,
+      r: Math.random()*1.3+0.3
+    }));
+  }
+  function step(){
+    ctx.clearRect(0,0,w,h);
+    // stars
+    ctx.fillStyle = '#9fb3cc';
+    for(const p of particles){
+      p.x += p.vx; p.y += p.vy;
+      if(p.x<0||p.x>w) p.vx*=-1;
+      if(p.y<0||p.y>h) p.vy*=-1;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+    }
+    // constellations (connect near points)
+    ctx.strokeStyle = '#264567'; ctx.globalAlpha = 0.6; ctx.lineWidth = 0.5;
+    for(let i=0;i<particles.length;i++){
+      for(let j=i+1;j<particles.length;j++){
+        const a=particles[i], b=particles[j];
+        const dx=a.x-b.x, dy=a.y-b.y; const d=dx*dx+dy*dy;
+        if(d<120*120 && Math.random()<0.02){
+          ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    starsRAF = requestAnimationFrame(step);
+  }
+  function stop(){ if(starsRAF) cancelAnimationFrame(starsRAF); starsRAF=0; }
+  if(enable){ resize(); init(); step(); window.addEventListener('resize', ()=>{ resize(); init(); }); }
+  else { stop(); }
 }
