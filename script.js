@@ -385,9 +385,16 @@ function startStars(enable){
   if(!cnv) return;
   const ctx = cnv.getContext('2d');
   let w=0,h=0,particles=[];
-  function resize(){ w = cnv.width = cnv.clientWidth; h = cnv.height = cnv.clientHeight; }
+  function resize(){
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    w = cnv.clientWidth; h = cnv.clientHeight;
+    cnv.width = Math.floor(w * dpr); cnv.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
   function init(){
-    const count = Math.max(80, Math.floor((w*h)/18000));
+    const base = (w*h);
+    const density = (Math.min(w, h) < 520) ? 26000 : 18000;
+    const count = Math.max(60, Math.floor(base/density));
     particles = new Array(count).fill(0).map(()=>({
       x: Math.random()*w,
       y: Math.random()*h,
