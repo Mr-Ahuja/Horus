@@ -31,18 +31,26 @@ jobs:
           };
           EOF
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools
+        env:
+          NO_UPDATE_NOTIFIER: true
+
       - name: Deploy preview on PRs
         if: github.event_name == 'pull_request'
-        uses: w9jds/firebase-action@v3.0.0
-        with:
-          args: hosting:channel:deploy pr-${{ github.event.number }} --project horus-vision-4587f --expires 7d
+        run: |
+          firebase hosting:channel:deploy pr-${{ github.event.number }} --project horus-vision-4587f --expires 7d
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
       - name: Deploy to production on main
         if: github.event_name == 'push'
-        uses: w9jds/firebase-action@v3.0.0
-        with:
-          args: deploy --only hosting --project horus-vision-4587f
+        run: |
+          firebase deploy --only hosting --project horus-vision-4587f
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
