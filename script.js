@@ -165,11 +165,13 @@ function startWebRTC(isOfferer) {
   room.on('data', (message, client) => {
     if (client.id === drone.clientId) return; // ignore our own
     if (message.sdp) {
-      pc.setRemoteDescription(new RTCSessionDescription(message.sdp), () => {
-        if (pc.remoteDescription.type === 'offer') {
-          pc.createAnswer().then(localDescCreated).catch(onError);
-        }
-      }, onError);
+      pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
+        .then(() => {
+          if (pc.remoteDescription && pc.remoteDescription.type === 'offer') {
+            return pc.createAnswer().then(localDescCreated);
+          }
+        })
+        .catch(onError);
     } else if (message.candidate) {
       pc.addIceCandidate(new RTCIceCandidate(message.candidate), onSuccess, onError);
     }
@@ -177,9 +179,7 @@ function startWebRTC(isOfferer) {
 }
 
 function localDescCreated(desc) {
-  pc.setLocalDescription(
-    desc,
-    () => sendMessage({ 'sdp': pc.localDescription }),
-    onError
-  );
+  return pc.setLocalDescription(desc)
+    .then(() => sendMessage({ 'sdp': pc.localDescription }))
+    .catch(onError);
 }
