@@ -23,6 +23,11 @@ const startRoomBtn = document.getElementById('startRoomBtn');
 const roomTitleInput = document.getElementById('roomTitleInput');
 const roomInput = document.getElementById('roomInput');
 const goBtn = document.getElementById('goBtn');
+const devicesBtn = document.getElementById('devicesBtn');
+const devicesDrawer = document.getElementById('devicesDrawer');
+const devicesClose = document.getElementById('devicesClose');
+const audioInDrawer = document.getElementById('audioInDrawer');
+const videoInDrawer = document.getElementById('videoInDrawer');
 
 // State
 let roomHash = location.hash.substring(1);
@@ -68,7 +73,7 @@ els.hangupBtn?.addEventListener('click', () => { try{ pc?.close(); }catch{} loca
 // Speaker toggle (hide on unsupported)
 if (!('setSinkId' in HTMLMediaElement.prototype)) { if (els.speakerBtn) els.speakerBtn.style.display = 'none'; }
 function updateSpeakerIcon(){ const ic = els.speakerBtn?.querySelector('span.material-icons'); if(ic) ic.textContent = speakerMode ? 'speaker' : 'headset'; }
-els.speakerBtn?.addEventListener('click', () => { speakerMode = !speakerMode; updateSpeakerIcon(); try{ routeToSpeaker(); }catch{} });
+els.speakerBtn?.addEventListener('click', () => { speakerMode = !speakerMode; updateSpeakerIcon(); try{ routeToSpeaker().then(()=>showToast(speakerMode? 'Speaker On':'Speaker Off')).catch(()=>showToast(speakerMode? 'Speaker On':'Speaker Off')); }catch{ showToast(speakerMode? 'Speaker On':'Speaker Off'); } });
 
 // Devices
 els.audioIn?.addEventListener('change', async (e)=>{ const id=e.target.value; if(!localStream) return; try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:id}}}); const nt=s.getAudioTracks()[0]; const sender=pc?.getSenders().find(x=>x.track && x.track.kind==='audio'); if(sender) sender.replaceTrack(nt); localStream.getAudioTracks().forEach(t=>t.stop()); localStream.removeTrack(localStream.getAudioTracks()[0]); localStream.addTrack(nt); setupMicLevel(); }catch(err){ onError(err); }});
@@ -126,6 +131,16 @@ function routeToSpeaker(){
     }
   } catch(e) {}
 }
+
+// Devices drawer (mobile)
+function syncDrawerSelects(){ if(!audioInDrawer||!videoInDrawer) return; audioInDrawer.innerHTML = els.audioIn?.innerHTML || ''; videoInDrawer.innerHTML = els.videoIn?.innerHTML || ''; audioInDrawer.value = els.audioIn?.value || ''; videoInDrawer.value = els.videoIn?.value || ''; }
+devicesBtn?.addEventListener('click', () => { try{ syncDrawerSelects(); }catch{} devicesDrawer?.classList.add('show'); devicesDrawer?.setAttribute('aria-hidden','false'); });
+devicesClose?.addEventListener('click', () => { devicesDrawer?.classList.remove('show'); devicesDrawer?.setAttribute('aria-hidden','true'); });
+audioInDrawer?.addEventListener('change', (e)=>{ if(els.audioIn) els.audioIn.value = e.target.value; els.audioIn?.dispatchEvent(new Event('change')); });
+videoInDrawer?.addEventListener('change', (e)=>{ if(els.videoIn) els.videoIn.value = e.target.value; els.videoIn?.dispatchEvent(new Event('change')); });
+
+// Toast helper
+function showToast(text){ const t=document.getElementById('toast'); if(!t) return; t.textContent=text; t.style.display='block'; clearTimeout(showToast._t); showToast._t=setTimeout(()=>{ t.style.display='none'; },1600); }
 
 // Celestial landing animation with persistent lines
 function startStars(enable){ const cnv=document.getElementById('stars'); if(!cnv) return; const ctx=cnv.getContext('2d'); let w=0,h=0,particles=[],lines=[]; function resize(){ const dpr=Math.min(2,window.devicePixelRatio||1); w=cnv.clientWidth; h=cnv.clientHeight; cnv.width=Math.floor(w*dpr); cnv.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0);} function init(){ const base=(w*h); const density=(Math.min(w,h)<520)?30000:22000; const count=Math.max(50,Math.floor(base/density)); particles=new Array(count).fill(0).map(()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.12,vy:(Math.random()-0.5)*0.12,r:Math.random()*1.2+0.3})); lines=[]; } function step(){ ctx.clearRect(0,0,w,h); ctx.fillStyle='#9fb3cc'; for(const p of particles){ p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>w) p.vx*=-1; if(p.y<0||p.y>h) p.vy*=-1; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); } ctx.strokeStyle='#264567'; ctx.globalAlpha=0.6; ctx.lineWidth=0.5; lines = lines.filter(L=>{ ctx.beginPath(); ctx.moveTo(L.ax,L.ay); ctx.lineTo(L.bx,L.by); ctx.stroke(); L.ttl-=1; return L.ttl>0; }); if(Math.random()<0.02){ const a=particles[(Math.random()*particles.length)|0], b=particles[(Math.random()*particles.length)|0]; const dx=a.x-b.x, dy=a.y-b.y; const d=dx*dx+dy*dy; if(d<120*120){ lines.push({ax:a.x,ay:a.y,bx:b.x,by:b.y,ttl:40+((Math.random()*40)|0)}); } } ctx.globalAlpha=1; starsRAF=requestAnimationFrame(step);} function stop(){ if(starsRAF) cancelAnimationFrame(starsRAF); starsRAF=0;} if(enable){ resize(); init(); step(); window.addEventListener('resize', ()=>{ resize(); init(); }); } else { stop(); } }
