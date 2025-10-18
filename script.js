@@ -1,4 +1,5 @@
 // Landing vs Room: do not auto-create a room; show landing when no hash
+var starsRAF = 0; // ensure defined before any startStars() call
 
 // UI elements
 const els = {
@@ -379,7 +380,6 @@ function localDescCreated(pc, desc, toPeerId) {
 }
 
 // Celestial landing animation (lightweight stars + constellations)
-let starsRAF = 0;
 function startStars(enable){
   const cnv = document.getElementById('stars');
   if(!cnv) return;
