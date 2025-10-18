@@ -1,7 +1,4 @@
-// Generate random room name if needed
-if (!location.hash) {
-  location.hash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
-}
+// Landing vs Room: do not auto-create a room; show landing when no hash
 
 // UI elements
 const els = {
@@ -18,18 +15,27 @@ const els = {
   grid: document.getElementById('grid')
 };
 
-const roomHash = location.hash.substring(1);
-els.roomId.textContent = roomHash;
+// Landing controls
+const landing = document.getElementById('landing');
+const startRoomBtn = document.getElementById('startRoomBtn');
+const copyLinkLanding = document.getElementById('copyLinkLanding');
+const roomInput = document.getElementById('roomInput');
+const joinBtn = document.getElementById('joinBtn');
+
+let roomHash = location.hash.substring(1);
+if (roomHash) { els.roomId.textContent = roomHash; if (landing) landing.classList.add('hidden'); }
+else { if (landing) landing.classList.remove('hidden'); }
 
 // TODO: Replace with your own channel ID (currently demo)
-const drone = new ScaleDrone('yiS12Ts5RdNhebyM');
+let drone = null;
 // Room name needs to be prefixed with 'observable-'
-const roomName = 'observable-' + roomHash;
+let roomName = roomHash ? 'observable-' + roomHash : null;
 const configuration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 };
 const MAX_PEERS = 5;
-let room; let localStream;
+let room; let localStream; let ended = false;
+const peerState = new Map(); // peerId -> { makingOffer, polite }
 const peers = new Map(); // peerId -> RTCPeerConnection
 const remoteTiles = new Map(); // peerId -> HTMLVideoElement
 
@@ -56,6 +62,30 @@ els.copyLinkBtn?.addEventListener('click', async () => {
     // fallback
     prompt('Copy this link', location.href);
   }
+});
+
+copyLinkLanding?.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(location.origin + location.pathname); } catch (_) {}
+});
+
+startRoomBtn?.addEventListener('click', () => {
+  roomHash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
+  location.hash = roomHash;
+  begin();
+});
+
+joinBtn?.addEventListener('click', () => {
+  const val = (roomInput?.value || '').trim();
+  if (!val) return;
+  try {
+    if (val.includes('http')) {
+      const url = new URL(val);
+      location.href = url.origin + url.pathname + url.hash;
+    } else {
+      location.hash = val.replace(/^#/, '');
+      begin();
+    }
+  } catch (_) {}
 });
 
 // List and update available devices
@@ -119,7 +149,11 @@ els.hangupBtn?.addEventListener('click', () => {
     tile?.remove();
   });
   remoteTiles.clear();
-  setStatus('ended', 'warn');
+  if (!ended) {
+    ended = true;
+    setStatus('ended', 'warn');
+    try { sendMessage({ endAll: true }); } catch {}
+  }
 });
 
 async function ensureLocal() {
@@ -133,6 +167,18 @@ async function ensureLocal() {
   } catch (e) { onError(e); }
 }
 
+function begin() {
+  if (landing) landing.classList.add('hidden');
+  if (!roomHash) roomHash = location.hash.substring(1);
+  els.roomId.textContent = roomHash;
+  roomName = 'observable-' + roomHash;
+  drone = new ScaleDrone('yiS12Ts5RdNhebyM');
+  attachDrone();
+}
+
+if (roomHash) { begin(); }
+
+function attachDrone() {
 drone.on('open', error => {
   if (error) { return onError(error); }
   room = drone.subscribe(roomName);
@@ -179,6 +225,7 @@ drone.on('open', error => {
     remoteTiles.delete(id);
   });
 });
+}
 
 // Send signaling data via Scaledrone
 function sendMessage(message, to) {
@@ -191,6 +238,7 @@ function ensurePeer(peerId, isOfferer) {
   if (peers.has(peerId)) return peers.get(peerId);
   const pc = new RTCPeerConnection(configuration);
   peers.set(peerId, pc);
+  peerState.set(peerId, { makingOffer: false, polite: (drone.clientId < peerId) });
 
   pc.addEventListener('connectionstatechange', () => {
     const s = pc.connectionState;
@@ -232,7 +280,11 @@ function ensurePeer(peerId, isOfferer) {
 
   if (isOfferer) {
     // Create offer after transceivers added
-    const maybeOffer = () => pc.createOffer().then(desc => localDescCreated(pc, desc, peerId)).catch(onError);
+    const maybeOffer = async () => {
+      const st = peerState.get(peerId); if (!st) return;
+      try { st.makingOffer = true; const offer = await pc.createOffer(); await localDescCreated(pc, offer, peerId); }
+      catch(e){ onError(e); } finally { st.makingOffer = false; }
+    };
     if (!localStream) {
       navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(async stream => {
         localStream = stream;
@@ -268,14 +320,31 @@ const attachRoomDataListener = () => {
   room.on('data', (message, client) => {
     if (client.id === drone.clientId) return; // ignore our own broadcast
     if (message.to && message.to !== drone.clientId) return; // not addressed to us
+    if (message.endAll && !ended) {
+      ended = true;
+      els.hangupBtn?.click();
+      setStatus('call ended', 'warn');
+      return;
+    }
     const peerId = message.from || client.id;
     let pc = peers.get(peerId);
     if (!pc) pc = ensurePeer(peerId, false);
     if (message.sdp) {
-      pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-        .then(() => {
-          if (pc.remoteDescription && pc.remoteDescription.type === 'offer') {
-            return pc.createAnswer().then(desc => localDescCreated(pc, desc, peerId));
+      const desc = new RTCSessionDescription(message.sdp);
+      const st = peerState.get(peerId) || { makingOffer: false, polite: true };
+      const offerCollision = desc.type === 'offer' && (st.makingOffer || pc.signalingState !== 'stable');
+      const ignoreOffer = !st.polite && offerCollision;
+      if (ignoreOffer) return;
+      (offerCollision ? pc.setLocalDescription({ type: 'rollback' }) : Promise.resolve())
+        .then(() => pc.setRemoteDescription(desc))
+        .then(async () => {
+          if (desc.type === 'offer') {
+            const answer = await pc.createAnswer();
+            await localDescCreated(pc, answer, peerId);
+          } else if (desc.type === 'answer') {
+            if (pc.signalingState !== 'have-local-offer') {
+              return; // stale/unsolicited answer
+            }
           }
         })
         .catch(onError);
