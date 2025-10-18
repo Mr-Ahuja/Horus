@@ -14,6 +14,7 @@ const els = {
   videoIn: document.getElementById('videoIn'),
   localVideo: document.getElementById('localVideo'),
   remoteVideo: document.getElementById('remoteVideo'),
+  remoteAudio: document.getElementById('remoteAudio'),
 };
 
 const landing = document.getElementById('landing');
@@ -84,7 +85,19 @@ function attach(){
 function startWebRTC(isOfferer){ if(pc) return; pc = new RTCPeerConnection(configuration); pendingCandidates = [];
   pc.onconnectionstatechange = () => { const s=pc.connectionState; if(s==='connected') setStatus('connected','ok'); else if(s==='failed') setStatus('failed','err'); else setStatus(s, s==='connecting'?'warn':undefined); };
   pc.onicecandidate = ev => { if(ev.candidate) publish({ candidate: ev.candidate }); };
-  pc.ontrack = ev => { const stream = ev.streams[0]; if(!els.remoteVideo.srcObject || els.remoteVideo.srcObject.id!==stream.id){ els.remoteVideo.srcObject = stream; els.remoteVideo.play?.().catch(()=>{}); routeToSpeaker(); } };
+  pc.ontrack = ev => {
+    const stream = ev.streams[0];
+    // attach video
+    if(!els.remoteVideo.srcObject || els.remoteVideo.srcObject.id!==stream.id){
+      els.remoteVideo.srcObject = stream; els.remoteVideo.play?.().catch(()=>{});
+    }
+    // attach audio separately
+    try {
+      const aStream = new MediaStream(stream.getAudioTracks());
+      els.remoteAudio.srcObject = aStream; els.remoteAudio.play?.().catch(()=>{});
+      routeToSpeaker();
+    } catch {}
+  };
   if(localStream){ localStream.getTracks().forEach(t=>pc.addTrack(t, localStream)); }
   else { navigator.mediaDevices.getUserMedia({video:true,audio:true}).then(stream=>{ localStream=stream; els.localVideo.srcObject=stream; stream.getTracks().forEach(t=>pc.addTrack(t,stream)); }).catch(onError); }
   if(isOfferer){ pc.onnegotiationneeded = () => { pc.createOffer().then(localDescCreated).catch(onError); } }
@@ -93,8 +106,19 @@ function startWebRTC(isOfferer){ if(pc) return; pc = new RTCPeerConnection(confi
 function localDescCreated(desc){ pc.setLocalDescription(desc).then(()=> publish({ sdp: pc.localDescription })).catch(onError); }
 function handleRemoteCandidate(c){ if(pc.remoteDescription) pc.addIceCandidate(new RTCIceCandidate(c)).catch(onError); else pendingCandidates.push(c); }
 function flushCandidates(){ while(pendingCandidates.length){ const c=pendingCandidates.shift(); pc.addIceCandidate(new RTCIceCandidate(c)).catch(onError); } }
-function routeToSpeaker(){ try{ if(typeof els.remoteVideo.setSinkId==='function'){ navigator.mediaDevices.enumerateDevices().then(list=>{ const outs=list.filter(d=>d.kind==='audiooutput'); const sp=outs.find(o=>/speaker/i.test(o.label)); const id=sp?sp.deviceId:(outs[0]?.deviceId||'default'); return els.remoteVideo.setSinkId(id); }).catch(()=>{});} }catch(e){} }
+function routeToSpeaker(){
+  try {
+    const sinkTarget = els.remoteAudio || els.remoteVideo;
+    if (typeof sinkTarget.setSinkId === 'function') {
+      navigator.mediaDevices.enumerateDevices().then(list => {
+        const outs = list.filter(d => d.kind === 'audiooutput');
+        const sp = outs.find(o => /speaker/i.test(o.label));
+        const id = sp ? sp.deviceId : (outs[0]?.deviceId || 'default');
+        return sinkTarget.setSinkId(id);
+      }).catch(()=>{});
+    }
+  } catch(e) {}
+}
 
 // Celestial landing animation with persistent lines
-function startStars(enable){ const cnv=document.getElementById('stars'); if(!cnv) return; const ctx=cnv.getContext('2d'); let w=0,h=0,particles=[],lines=[]; function resize(){ const dpr=Math.min(2,window.devicePixelRatio||1); w=cnv.clientWidth; h=cnv.clientHeight; cnv.width=Math.floor(w*dpr); cnv.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0);} function init(){ const base=(w*h); const density=(Math.min(w,h)<520)?26000:20000; const count=Math.max(60,Math.floor(base/density)); particles=new Array(count).fill(0).map(()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.15,vy:(Math.random()-0.5)*0.15,r:Math.random()*1.3+0.3})); lines=[]; } function step(){ ctx.clearRect(0,0,w,h); ctx.fillStyle='#9fb3cc'; for(const p of particles){ p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>w) p.vx*=-1; if(p.y<0||p.y>h) p.vy*=-1; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); } // persist lines
-  ctx.strokeStyle='#264567'; ctx.globalAlpha=0.6; ctx.lineWidth=0.5; lines = lines.filter(L=>{ ctx.beginPath(); ctx.moveTo(L.ax,L.ay); ctx.lineTo(L.bx,L.by); ctx.stroke(); L.ttl-=1; return L.ttl>0; }); if(Math.random()<0.06){ const a=particles[(Math.random()*particles.length)|0], b=particles[(Math.random()*particles.length)|0]; const dx=a.x-b.x, dy=a.y-b.y; const d=dx*dx+dy*dy; if(d<120*120){ lines.push({ax:a.x,ay:a.y,bx:b.x,by:b.y,ttl:20+((Math.random()*20)|0)}); } } ctx.globalAlpha=1; starsRAF=requestAnimationFrame(step);} function stop(){ if(starsRAF) cancelAnimationFrame(starsRAF); starsRAF=0;} if(enable){ resize(); init(); step(); window.addEventListener('resize', ()=>{ resize(); init(); }); } else { stop(); } }
+function startStars(enable){ const cnv=document.getElementById('stars'); if(!cnv) return; const ctx=cnv.getContext('2d'); let w=0,h=0,particles=[],lines=[]; function resize(){ const dpr=Math.min(2,window.devicePixelRatio||1); w=cnv.clientWidth; h=cnv.clientHeight; cnv.width=Math.floor(w*dpr); cnv.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0);} function init(){ const base=(w*h); const density=(Math.min(w,h)<520)?30000:22000; const count=Math.max(50,Math.floor(base/density)); particles=new Array(count).fill(0).map(()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.12,vy:(Math.random()-0.5)*0.12,r:Math.random()*1.2+0.3})); lines=[]; } function step(){ ctx.clearRect(0,0,w,h); ctx.fillStyle='#9fb3cc'; for(const p of particles){ p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>w) p.vx*=-1; if(p.y<0||p.y>h) p.vy*=-1; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); } ctx.strokeStyle='#264567'; ctx.globalAlpha=0.6; ctx.lineWidth=0.5; lines = lines.filter(L=>{ ctx.beginPath(); ctx.moveTo(L.ax,L.ay); ctx.lineTo(L.bx,L.by); ctx.stroke(); L.ttl-=1; return L.ttl>0; }); if(Math.random()<0.02){ const a=particles[(Math.random()*particles.length)|0], b=particles[(Math.random()*particles.length)|0]; const dx=a.x-b.x, dy=a.y-b.y; const d=dx*dx+dy*dy; if(d<120*120){ lines.push({ax:a.x,ay:a.y,bx:b.x,by:b.y,ttl:40+((Math.random()*40)|0)}); } } ctx.globalAlpha=1; starsRAF=requestAnimationFrame(step);} function stop(){ if(starsRAF) cancelAnimationFrame(starsRAF); starsRAF=0;} if(enable){ resize(); init(); step(); window.addEventListener('resize', ()=>{ resize(); init(); }); } else { stop(); } }
