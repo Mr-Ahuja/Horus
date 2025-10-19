@@ -1,10 +1,10 @@
-name: Firebase Hosting
+﻿name: Firebase Hosting
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 permissions:
   contents: read
@@ -54,3 +54,4 @@ jobs:
           firebase deploy --only hosting --project horus-vision-4587f
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
